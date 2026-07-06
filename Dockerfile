@@ -1,5 +1,6 @@
 FROM python:3.12-slim
 WORKDIR /app
+RUN apt-get update -qq && apt-get install -y -qq fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir flask staticmap Pillow
 COPY app.py .
 COPY templates/ templates/

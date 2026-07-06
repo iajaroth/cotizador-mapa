@@ -193,11 +193,12 @@ def lock_session(session_id):
 
 
 from staticmap import StaticMap, CircleMarker
+from PIL import Image, ImageDraw, ImageFont
 import io
 
 @app.route('/api/session/<session_id>/screenshot', methods=['GET'])
 def session_screenshot(session_id):
-    """Genera una imagen satelital con los pines marcados."""
+    """Genera una imagen satelital con pines numerados."""
     sf = _session_file(session_id)
     if not sf.exists():
         abort(404)
@@ -209,36 +210,52 @@ def session_screenshot(session_id):
     if not pins:
         abort(400)
 
-    # Calcular centro y zoom
     lats = [p["lat"] for p in pins]
     lngs = [p["lng"] for p in pins]
     center_lat = sum(lats) / len(lats)
     center_lng = sum(lngs) / len(lngs)
 
-    # Calcular zoom basado en la dispersión
     span_lat = max(lats) - min(lats) if len(lats) > 1 else 0.002
     span_lng = max(lngs) - min(lngs) if len(lngs) > 1 else 0.002
     max_span = max(span_lat, span_lng) * 1.5 + 0.001
     zoom = max(1, min(20, int(15 - (max_span * 5000))))
 
-    # Crear mapa con tiles satelitales de ESRI
     TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
     sm = StaticMap(800, 500, url_template=TILE_URL)
     sm.zoom = zoom
     sm.center = [center_lng, center_lat]
 
-    # Dibujar pines numerados
-    for i, pin in enumerate(pins):
+    # Solo círculos de color (sin números aún)
+    for pin in pins:
         color = pin.get("color", "#d49b2c")
-        marker = CircleMarker((pin["lng"], pin["lat"]), color, 14)
-        sm.add_marker(CircleMarker((pin["lng"], pin["lat"]), "white", 17))
-        sm.add_marker(CircleMarker((pin["lng"], pin["lat"]), color, 14))
+        sm.add_marker(CircleMarker((pin["lng"], pin["lat"]), "white", 18))
+        sm.add_marker(CircleMarker((pin["lng"], pin["lat"]), color, 15))
 
     image = sm.render()
+
+    # Dibujar números con Pillow
+    draw = ImageDraw.Draw(image)
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+    except:
+        font = ImageFont.load_default()
+
+    for i, pin in enumerate(pins):
+        # Convertir coordenadas a píxeles aproximados
+        x = int((pin["lng"] - center_lng) * 800 * (2**zoom) / 360 + 400)
+        y = int((center_lat - pin["lat"]) * 500 * (2**zoom) / 180 + 250)
+        x = max(10, min(790, x))
+        y = max(10, min(490, y))
+
+        num = str(i + 1)
+        bbox = draw.textbbox((0, 0), num, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        tx, ty = x - tw // 2, y - th // 2
+        draw.text((tx, ty), num, fill="white", font=font)
+
     img_io = io.BytesIO()
     image.save(img_io, 'PNG')
     img_io.seek(0)
-
     return send_file(img_io, mimetype='image/png')
 
 
