@@ -42,11 +42,34 @@ def _session_file(session_id: str) -> Path:
 
 
 def _check_access(sf: Path, pin: str = None):
-    """Verifica que la sesión exista y el PIN coincida (si tiene)."""
+    """Verifica que la sesión exista, PIN coincida, no haya expirado, y no exceda límite de accesos."""
     if not sf.exists():
         abort(404)
+
     with open(sf) as f:
         data = json.load(f)
+
+    # Expiración: 48h si está locked, 24h si no
+    created = data.get("created_at", "")
+    max_hours = 48 if data.get("locked") else 24
+    if created:
+        try:
+            created_dt = datetime.fromisoformat(created)
+            age_hours = (datetime.now() - created_dt).total_seconds() / 3600
+            if age_hours > max_hours:
+                sf.unlink()  # Auto-delete expired session
+                abort(404)
+        except ValueError:
+            pass
+
+    # Máximo 500 accesos totales por sesión
+    access_count = data.get("access_count", 0)
+    if access_count > 500:
+        abort(404)
+    data["access_count"] = access_count + 1
+    with open(sf, 'w') as f:
+        json.dump(data, f, indent=2)
+
     stored_pin = data.get("pin")
     if stored_pin and stored_pin != pin:
         abort(403)
@@ -55,7 +78,7 @@ def _check_access(sf: Path, pin: str = None):
 
 @app.route('/')
 def index():
-    return jsonify({"service": "STS Security Mapa de Camaras", "status": "ok"})
+    abort(404)  # Nada público — solo accesible con link directo
 
 
 @app.route('/map/<session_id>')
