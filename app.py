@@ -197,25 +197,19 @@ def health():
     return jsonify({"status": "ok"})
 
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5050))
-    app.run(host='0.0.0.0', port=port, debug=False)
-
 # ═══════════ EVOLUTION API WEBHOOK RECEIVER ═══════════
-import threading, queue as qmod
+import queue as qmod
 
-_message_queue = qmod.Queue()  # Thread-safe queue for incoming messages
+_message_queue = qmod.Queue()
 
 @app.route('/api/webhooks/evolution', methods=['POST'])
 def evolution_webhook():
-    """Recibe mensajes de Evolution API y los encola."""
     data = request.get_json(force=True, silent=True) or {}
     _message_queue.put({"timestamp": datetime.now().isoformat(), "data": data})
     return jsonify({"status": "received"})
 
 @app.route('/api/webhooks/evolution/pending', methods=['GET'])
 def get_pending_messages():
-    """Devuelve mensajes pendientes (para que Hermes los procese)."""
     messages = []
     while not _message_queue.empty():
         try:
@@ -223,3 +217,9 @@ def get_pending_messages():
         except qmod.Empty:
             break
     return jsonify({"messages": messages, "count": len(messages)})
+
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5050))
+    app.run(host='0.0.0.0', port=port, debug=False)
+
