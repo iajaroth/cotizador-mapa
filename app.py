@@ -233,19 +233,29 @@ def session_screenshot(session_id):
 
     image = sm.render()
 
-    # Dibujar números con Pillow
+    # Dibujar números con Pillow (usando proyección Mercator correcta)
     draw = ImageDraw.Draw(image)
     try:
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
     except:
         font = ImageFont.load_default()
 
+    import math as _m
+    # Conversión correcta de lat/lng → píxeles en Web Mercator
+    # Center in radians
+    clat = center_lat * _m.pi / 180
+    clng = center_lng * _m.pi / 180
+    scale = 256 * (2 ** zoom) / (2 * _m.pi)
+
     for i, pin in enumerate(pins):
-        # Convertir coordenadas a píxeles aproximados
-        x = int((pin["lng"] - center_lng) * 800 * (2**zoom) / 360 + 400)
-        y = int((center_lat - pin["lat"]) * 500 * (2**zoom) / 180 + 250)
-        x = max(10, min(790, x))
-        y = max(10, min(490, y))
+        lat_r = pin["lat"] * _m.pi / 180
+        lng_r = pin["lng"] * _m.pi / 180
+
+        x = 400 + scale * (lng_r - clng)
+        y = 250 - scale * (_m.log(_m.tan(_m.pi/4 + lat_r/2)) - _m.log(_m.tan(_m.pi/4 + clat/2)))
+
+        x = int(max(12, min(788, x)))
+        y = int(max(12, min(488, y)))
 
         num = str(i + 1)
         bbox = draw.textbbox((0, 0), num, font=font)
