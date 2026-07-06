@@ -5,7 +5,7 @@ Sesiones privadas con ID largo + PIN opcional.
 import os, json, hashlib, secrets, time
 from pathlib import Path
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, abort
+from flask import Flask, render_template, request, jsonify, abort, send_file
 from functools import wraps
 
 app = Flask(__name__)

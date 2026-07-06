@@ -1,7 +1,6 @@
 FROM python:3.12-slim
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir flask
+RUN pip install --no-cache-dir flask staticmap Pillow
 COPY app.py .
 COPY templates/ templates/
 RUN mkdir -p /app/data/mapas
