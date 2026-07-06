@@ -202,9 +202,25 @@ import queue as qmod
 
 _message_queue = qmod.Queue()
 
+TRIGGER_WORDS = ["cotizar", "cotización", "cotizacion", "cotiza"]
+
 @app.route('/api/webhooks/evolution', methods=['POST'])
 def evolution_webhook():
     data = request.get_json(force=True, silent=True) or {}
+
+    # Extraer texto del mensaje
+    msg_data = data.get("data", data)
+    message = msg_data.get("message", {})
+    text = (
+        message.get("conversation", "") or
+        message.get("extendedTextMessage", {}).get("text", "") or
+        ""
+    ).strip().lower()
+
+    # Solo procesar si es un mensaje de cotización
+    if not any(text.startswith(tw) for tw in TRIGGER_WORDS):
+        return jsonify({"status": "ignored"})
+
     _message_queue.put({"timestamp": datetime.now().isoformat(), "data": data})
     return jsonify({"status": "received"})
 
