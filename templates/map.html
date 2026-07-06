@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STS Security - Mapa de Cámaras</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0b1a28;color:#e0e0e0}
+.header{background:#0b2a40;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #d49b2c}
+.header h1{font-size:18px;color:#d49b2c}
+.container{display:flex;height:calc(100vh - 56px)}
+.sidebar{width:320px;background:#0d1f30;padding:16px;overflow-y:auto;border-right:1px solid #1a3a50}
+.map-container{flex:1;position:relative}
+#map{width:100%;height:100%}
+.sidebar h3{color:#d49b2c;margin-bottom:12px;font-size:14px}
+.pin-list{list-style:none}
+.pin-list li{background:#112a3d;margin-bottom:6px;padding:8px 10px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:10px;font-size:13px;transition:background 0.2s}
+.pin-list li:hover{background:#1a3a50}
+.pin-list li.selected{background:#1a4a60;border:1px solid #d49b2c}
+.pin-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.btn{padding:10px 16px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600}
+.btn-primary{background:#d49b2c;color:#0b1a28;width:100%;margin-top:8px}
+.btn-danger{background:#c0392b;color:white;width:100%;margin-top:8px}
+.btn-outline{background:transparent;border:1px solid #d49b2c;color:#d49b2c;width:100%;margin-top:4px}
+.btn:disabled{opacity:0.4;cursor:not-allowed}
+.mode-indicator{background:#112a3d;padding:10px;border-radius:6px;margin-bottom:12px;font-size:12px;text-align:center}
+.mode-indicator .locked{color:#e74c3c}
+.search-box{width:100%;padding:8px 10px;border:1px solid #1a3a50;border-radius:6px;background:#0b1a28;color:#e0e0e0;font-size:13px;margin-bottom:10px}
+.search-box::placeholder{color:#555}
+.instructions{font-size:11px;color:#888;margin-top:10px;line-height:1.5}
+.pin-count{font-size:12px;color:#888;margin-bottom:6px}
+.coord-display{font-size:11px;color:#666;margin-top:4px;text-align:right}
+</style>
+</head>
+<body>
+<div class="header">
+<div>
+<h1>🗺️ STS Security — Mapa de Cámaras</h1>
+<div style="font-size:12px;color:#888" id="propertyName">Cargando...</div>
+</div>
+<div>
+<button class="btn btn-outline" style="width:auto;margin:0" onclick="confirmarPines()" id="btnConfirmar">✅ Confirmar y Bloquear</button>
+<div class="coord-display" id="coordDisplay"></div>
+</div>
+</div>
+<div class="container">
+<div class="sidebar">
+<div class="mode-indicator" id="modeIndicator">
+<span style="color:#d49b2c;font-weight:bold">🎯 Modo: Colocar pines</span><br>
+<small>Hacé clic en el mapa para colocar una cámara</small>
+</div>
+<input type="text" class="search-box" id="searchBox" placeholder="🔍 Buscar ubicación (ej: Escazú, Costa Rica)..." onkeydown="if(event.key==='Enter') buscarUbicacion()">
+<h3>📷 Cámaras colocadas</h3>
+<div class="pin-count" id="pinCount">0 cámaras</div>
+<ul class="pin-list" id="pinList"></ul>
+<button class="btn btn-danger" id="btnEliminar" onclick="eliminarSeleccionada()" disabled>🗑️ Eliminar seleccionada</button>
+<div class="instructions">
+<strong>Instrucciones:</strong><br>
+1. Buscá la ubicación<br>
+2. Clic en el mapa = colocar cámara<br>
+3. Seleccioná un pin para cambiar tipo<br>
+4. <em>Confirmar y Bloquear</em> al terminar
+</div>
+</div>
+<div class="map-container"><div id="map"></div></div>
+</div>
+<script>
+const SESSION_ID = window.location.pathname.split('/map/')[1] || 'demo';
+const API = window.location.origin;
+let map, sessionData, selectedPin = -1;
+const TYPES = {
+  camera:{label:'📷 Cámara',color:'#d49b2c'},
+  videoportero:{label:'🔔 Videoportero',color:'#2ecc71'},
+  porton:{label:'🚪 Portón',color:'#3498db'},
+  antena:{label:'📡 Antena',color:'#9b59b6'},
+  nvr:{label:'🖥️ NVR',color:'#e74c3c'}
+};
+
+async function init(){
+  const r = await fetch(API+'/api/session/'+SESSION_ID);
+  sessionData = r.ok ? await r.json() : {session_id:SESSION_ID,pins:[],map_center:{lat:9.9281,lng:-84.0907},zoom:15,locked:false,property_name:''};
+  document.getElementById('propertyName').textContent = sessionData.property_name||'Propiedad';
+  map = L.map('map').setView([sessionData.map_center.lat,sessionData.map_center.lng],sessionData.zoom||15);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Esri,Maxar',maxZoom:20}).addTo(map);
+  L.tileLayer('https://services.arcgisonline.com/arcgis/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,opacity:0.6}).addTo(map);
+  if(!sessionData.locked) map.on('click',e=>agregarPin(e.latlng.lat,e.latlng.lng));
+  map.on('mousemove',e=>document.getElementById('coordDisplay').textContent='📍 '+e.latlng.lat.toFixed(6)+', '+e.latlng.lng.toFixed(6));
+  renderPins();
+  if(sessionData.locked) bloquearUI();
+}
+
+function agregarPin(lat,lng){
+  if(sessionData.locked) return;
+  sessionData.pins.push({lat,lng,type:'camera',label:'',color:TYPES.camera.color,added_at:new Date().toISOString()});
+  guardar(); renderPins();
+}
+
+function renderPins(){
+  map.eachLayer(l=>{if(l instanceof L.Marker) map.removeLayer(l)});
+  document.getElementById('pinList').innerHTML='';
+  sessionData.pins.forEach((p,i)=>{
+    L.marker([p.lat,p.lng],{draggable:!sessionData.locked,icon:L.divIcon({className:'',html:'<div style="background:'+p.color+';width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center"><span style="transform:rotate(45deg);font-size:14px">'+(i+1)+'</span></div>',iconSize:[28,28],iconAnchor:[14,28]})}).addTo(map).bindPopup('<b>'+TYPES[p.type].label+' #'+(i+1)+'</b><br><small>'+p.lat.toFixed(6)+', '+p.lng.toFixed(6)+'</small>').on('dragend',e=>{const pos=e.target.getLatLng();sessionData.pins[i].lat=pos.lat;sessionData.pins[i].lng=pos.lng;guardar()});
+    const li=document.createElement('li');
+    if(i===selectedPin) li.classList.add('selected');
+    li.innerHTML='<span class="pin-dot" style="background:'+p.color+'"></span><span style="flex:1">'+TYPES[p.type].label+' #'+(i+1)+'</span>'+(sessionData.locked?'':'<select onchange="cambiarTipo('+i+',this.value)" style="background:#0b1a28;color:#e0e0e0;border:1px solid #1a3a50;border-radius:4px;padding:2px 4px;font-size:11px">'+Object.entries(TYPES).map(([k,v])=>'<option value="'+k+'"'+(p.type===k?' selected':'')+'>'+v.label+'</option>').join('')+'</select>');
+    li.onclick=e=>{if(e.target.tagName==='SELECT')return;selectedPin=i;renderPins();map.setView([p.lat,p.lng],18)};
+    document.getElementById('pinList').appendChild(li);
+  });
+  document.getElementById('pinCount').textContent=sessionData.pins.length+' elemento(s)';
+  document.getElementById('btnEliminar').disabled=sessionData.locked||selectedPin<0;
+}
+
+function cambiarTipo(i,t){sessionData.pins[i].type=t;sessionData.pins[i].color=TYPES[t].color;guardar();renderPins()}
+function eliminarSeleccionada(){if(selectedPin<0||sessionData.locked)return;sessionData.pins.splice(selectedPin,1);selectedPin=-1;guardar();renderPins()}
+async function guardar(){await fetch(API+'/api/session/'+SESSION_ID,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(sessionData)})}
+async function confirmarPines(){
+  if(sessionData.pins.length===0){alert('⚠️ Colocá al menos un pin');return}
+  if(!confirm('¿Confirmar '+sessionData.pins.length+' cámara(s)? No se podrán modificar.'))return;
+  await fetch(API+'/api/session/'+SESSION_ID+'/lock',{method:'POST'});
+  sessionData.locked=true;bloquearUI();alert('✅ Mapa confirmado')
+}
+function bloquearUI(){
+  document.getElementById('modeIndicator').innerHTML='<span class="locked">🔒 Mapa BLOQUEADO</span><br><small>Pines confirmados</small>';
+  document.getElementById('btnConfirmar').disabled=true;document.getElementById('btnConfirmar').textContent='🔒 Confirmado';
+  document.getElementById('searchBox').disabled=true;
+}
+async function buscarUbicacion(){
+  const q=document.getElementById('searchBox').value.trim();if(!q)return;
+  const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&q='+encodeURIComponent(q+', Costa Rica')+'&limit=1');
+  const d=await r.json();
+  if(d.length>0){map.setView([parseFloat(d[0].lat),parseFloat(d[0].lon)],17);sessionData.map_center={lat:parseFloat(d[0].lat),lng:parseFloat(d[0].lon)};sessionData.property_name=d[0].display_name.split(',')[0];document.getElementById('propertyName').textContent=sessionData.property_name;guardar()}
+  else alert('No encontrado')
+}
+init();
+</script>
+</body>
+</html>
